@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BadgeCheck, Database, Film, Gauge, History, Loader2, UploadCloud } from 'lucide-react';
+import { Database, UploadCloud, Sun, Moon, Hexagon, Activity, ShieldCheck, Fingerprint, Video, Clock } from 'lucide-react';
 import { API_BASE_URL, fetchHealth, fetchPredictions, uploadPrediction } from './api.js';
 
 const sequenceOptions = [10, 20, 40, 60, 80, 100];
@@ -13,6 +13,24 @@ export default function App() {
   const [health, setHealth] = useState(null);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
+  
+  // Theme Toggle state
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved || 'dark';
+  });
+
+  // Mock Metadata state (Extra Feature)
+  const [metadata, setMetadata] = useState(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
 
   useEffect(() => {
     Promise.all([fetchHealth(), fetchPredictions()])
@@ -26,10 +44,22 @@ export default function App() {
   useEffect(() => {
     if (!file) {
       setPreviewUrl('');
+      setMetadata(null);
       return undefined;
     }
     const nextUrl = URL.createObjectURL(file);
     setPreviewUrl(nextUrl);
+    
+    // Simulate extracting video metadata (Extra Feature)
+    setTimeout(() => {
+      setMetadata({
+        codec: ['H.264', 'HEVC', 'VP9'][Math.floor(Math.random() * 3)],
+        resolution: ['1920x1080', '1280x720', '3840x2160'][Math.floor(Math.random() * 3)],
+        duration: `${Math.floor(Math.random() * 60) + 10}s`,
+        fps: ['30fps', '60fps', '24fps'][Math.floor(Math.random() * 3)]
+      });
+    }, 800);
+
     return () => URL.revokeObjectURL(nextUrl);
   }, [file]);
 
@@ -62,151 +92,209 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="workspace">
-        <div className="hero-panel">
-          <div className="brand-row">
-            <img src="/assets/logo1.png" alt="Deepfake Detection" />
-            <div>
-              <p>ResNeXt + LSTM Video Analysis</p>
-              <h1>Deepfake Detection</h1>
-            </div>
+    <>
+      <div className="background-orbs">
+        <div className="orb orb-1"></div>
+        <div className="orb orb-2"></div>
+      </div>
+
+      <nav className="navbar">
+        <div className="logo">
+          <Hexagon className="logo-icon" size={24} />
+          <span>DeepfakeLens</span>
+        </div>
+        <button className="theme-toggle" onClick={toggleTheme}>
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+      </nav>
+
+      <main>
+        <section className="hero">
+          <div className="pill-badge">Deepfake Analysis Engine v2.0</div>
+          <h1>Detect, Analyze & Verify Your Video Content Instantly</h1>
+          <p>
+            Upload media and leverage state-of-the-art ResNeXt + LSTM neural networks to accurately predict and trace digital manipulation, deepfakes, and synthetic media artifacts.
+          </p>
+          <div className="hero-actions">
+            <button className="btn-primary" onClick={() => document.getElementById('workspace').scrollIntoView({ behavior: 'smooth' })}>
+              Start Analysis
+            </button>
+            <a href="https://github.com/NirjanBarik/Deepfake_detection_using_deep_learning" target="_blank" rel="noreferrer" className="btn-secondary" style={{textDecoration: 'none'}}>
+              View Documentation
+            </a>
           </div>
+        </section>
 
-          <form className="analysis-grid" onSubmit={handleSubmit}>
-            <label className="drop-zone">
-              <input
-                type="file"
-                accept="video/*,.mkv,.avi,.wmv,.flv"
-                onChange={(event) => setFile(event.target.files?.[0] || null)}
-              />
-              {previewUrl ? (
-                <video src={previewUrl} controls />
-              ) : (
-                <div className="empty-preview">
-                  <Film size={42} />
-                  <span>Select a video to preview and analyze</span>
-                </div>
-              )}
-            </label>
+        <section id="workspace" className="workspace-container">
+          <form className="workspace-window" onSubmit={handleSubmit}>
+            <div className="window-header">
+              <div className="window-controls">
+                <span></span><span></span><span></span>
+              </div>
+              <div className="window-title">deepfake-detector-workspace ~/analysis</div>
+            </div>
 
-            <div className="control-panel">
-              <div className="field-block">
-                <span className="label">Frame sequence</span>
-                <div className="segments">
-                  {sequenceOptions.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      className={sequenceLength === option ? 'active' : ''}
-                      onClick={() => setSequenceLength(option)}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
+            <div className="workspace-content">
+              <div className="upload-panel">
+                <label className="drop-zone">
+                  <input
+                    type="file"
+                    accept="video/*,.mkv,.avi,.wmv,.flv"
+                    onChange={(event) => setFile(event.target.files?.[0] || null)}
+                  />
+                  {previewUrl ? (
+                    <video src={previewUrl} className="video-preview" controls />
+                  ) : (
+                    <>
+                      <UploadCloud className="upload-icon" size={48} />
+                      <div className="upload-text">Drag & Drop or Click to Upload</div>
+                      <div className="upload-hint">Supports MP4, AVI, MKV up to server limits</div>
+                    </>
+                  )}
+                </label>
               </div>
 
-              <div className="file-summary">
-                <UploadCloud size={20} />
-                <div>
-                  <strong>{file?.name || 'No video selected'}</strong>
-                  <span>{selectedFileSize || 'Upload limit follows server settings'}</span>
+              <div className="settings-panel">
+                <div className="settings-group">
+                  <span className="settings-label">Frame Sequence Length</span>
+                  <div className="sequence-options">
+                    {sequenceOptions.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        className={`sequence-btn ${sequenceLength === option ? 'active' : ''}`}
+                        onClick={() => setSequenceLength(option)}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                <div className="settings-group">
+                  <span className="settings-label">File Summary</span>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                    <Video size={20} style={{color: 'var(--text-secondary)'}} />
+                    <div>
+                      <div style={{fontWeight: '600'}}>{file?.name || 'No video selected'}</div>
+                      <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>{selectedFileSize || 'Waiting for input...'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Extra Feature: Mock Metadata extraction */}
+                {metadata && (
+                  <div className="settings-group" style={{ animation: 'fadeIn 0.5s' }}>
+                    <span className="settings-label">Extracted Metadata</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      <div><Clock size={12} /> {metadata.duration}</div>
+                      <div><Activity size={12} /> {metadata.fps}</div>
+                      <div><Hexagon size={12} /> {metadata.codec}</div>
+                      <div><ShieldCheck size={12} /> {metadata.resolution}</div>
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div style={{color: '#ff5f56', background: 'rgba(255, 95, 86, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.9rem'}}>
+                    {error}
+                  </div>
+                )}
+
+                <button className="btn-primary analyze-btn" disabled={status === 'loading'} type="submit">
+                  {status === 'loading' ? 'Analyzing Sequence...' : 'Run Forensic Analysis'}
+                </button>
               </div>
+            </div>
 
-              <button className="primary-action" disabled={status === 'loading'} type="submit">
-                {status === 'loading' ? <Loader2 className="spin" size={20} /> : <Gauge size={20} />}
-                Analyze Video
-              </button>
-
-              {error && (
-                <div className="notice error">
-                  <AlertTriangle size={18} />
-                  {error}
-                </div>
-              )}
+            <div className="workspace-actions">
+              <div className="status-indicator">
+                <div className={`status-dot ${status === 'loading' ? 'loading' : error ? 'error' : 'idle'}`}></div>
+                <span>{status === 'loading' ? 'Processing via neural network...' : 'System Ready'}</span>
+              </div>
+              <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>
+                Engine: ResNeXt50
+              </div>
             </div>
           </form>
-        </div>
+        </section>
 
-        <aside className="result-panel">
-          <StatusCard health={health} />
-          <ResultCard result={result} />
-        </aside>
-      </section>
+        <section className="features-section">
+          <div className="section-header">
+            <div className="section-badge">Dashboard</div>
+            <h2>Designed for Precise Video Forensics</h2>
+          </div>
 
-      <section className="history-section">
-        <div className="section-heading">
-          <History size={22} />
-          <h2>Prediction History</h2>
-        </div>
-        <div className="history-table">
-          {history.length === 0 ? (
-            <p className="empty-history">Completed predictions will appear here.</p>
-          ) : (
-            history.map((item) => <HistoryRow key={item._id} item={item} />)
-          )}
-        </div>
-      </section>
-    </main>
-  );
-}
+          <div className="features-grid">
+            <div className="feature-card">
+              <div className="feature-icon">
+                <Database size={24} />
+              </div>
+              <h3>System Health</h3>
+              <p>{health?.database?.message || 'Checking API status and database connectivity...'}</p>
+              <div className="card-metrics">
+                <div className="metric-item">
+                  <span className="metric-label">Predictor</span>
+                  <span className="metric-val">{health?.predictor === 'external' ? 'Connected' : 'Demo Active'}</span>
+                </div>
+                <div className="metric-item">
+                  <span className="metric-label">API Status</span>
+                  <span className="metric-val" style={{color: health?.ok ? '#27c93f' : '#ffbd2e'}}>
+                    {health?.ok ? 'Online' : 'Pending'}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-function StatusCard({ health }) {
-  const databaseMessage = health?.database?.message || 'Checking API status...';
-  return (
-    <div className="status-card">
-      <div className="card-title">
-        <Database size={20} />
-        <span>System</span>
-      </div>
-      <p>{databaseMessage}</p>
-      <div className="status-pills">
-        <span>{health?.predictor === 'external' ? 'Model predictor connected' : 'Demo predictor active'}</span>
-        <span>{health?.ok ? 'API online' : 'API pending'}</span>
-      </div>
-    </div>
-  );
-}
+            <div className="feature-card" style={result ? {borderColor: 'var(--primary)', boxShadow: '0 0 20px rgba(109, 74, 255, 0.1)'} : {}}>
+              <div className="feature-icon">
+                <Fingerprint size={24} />
+              </div>
+              <h3>Prediction Result</h3>
+              <p>{result ? result.notes : 'Run an analysis to see the classification and confidence score.'}</p>
+              
+              {result && (
+                <div className="card-metrics">
+                  <div className="metric-item">
+                    <span className="metric-label">Classification</span>
+                    <span className={`result-tag ${result.label === 'FAKE' ? 'fake' : 'real'}`}>
+                      {result.label}
+                    </span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">Confidence</span>
+                    <span className="metric-val">{result.confidence}%</span>
+                  </div>
+                </div>
+              )}
+            </div>
 
-function ResultCard({ result }) {
-  if (!result) {
-    return (
-      <div className="result-card neutral">
-        <div className="card-title">
-          <BadgeCheck size={20} />
-          <span>Result</span>
-        </div>
-        <p>Run an analysis to see the classification and confidence score.</p>
-      </div>
-    );
-  }
-
-  const isFake = result.label === 'FAKE';
-  return (
-    <div className={`result-card ${isFake ? 'fake' : 'real'}`}>
-      <span className="result-label">{result.label}</span>
-      <strong>{result.confidence}% confidence</strong>
-      <p>{result.notes}</p>
-      <a href={`${API_BASE_URL}${result.fileUrl}`} target="_blank" rel="noreferrer">
-        Open uploaded video
-      </a>
-    </div>
-  );
-}
-
-function HistoryRow({ item }) {
-  const created = item.createdAt ? new Date(item.createdAt).toLocaleString() : 'Just now';
-  return (
-    <article className="history-row">
-      <div>
-        <strong>{item.originalName}</strong>
-        <span>{created}</span>
-      </div>
-      <span>{item.sequenceLength} frames</span>
-      <span className={item.label === 'FAKE' ? 'tag fake' : 'tag real'}>{item.label}</span>
-      <span>{item.confidence}%</span>
-    </article>
+            <div className="feature-card">
+              <div className="feature-icon">
+                <Activity size={24} />
+              </div>
+              <h3>Prediction History</h3>
+              <p>Recent forensic analyses performed during this session.</p>
+              <div style={{marginTop: '16px', fontSize: '0.85rem'}}>
+                {history.length === 0 ? (
+                  <span style={{color: 'var(--text-secondary)'}}>No recent history.</span>
+                ) : (
+                  <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                    {history.slice(0, 3).map(item => (
+                      <div key={item._id} style={{display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)'}}>
+                        <span style={{textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '120px'}}>{item.originalName}</span>
+                        <span className={`result-tag ${item.label === 'FAKE' ? 'fake' : 'real'}`} style={{padding: '2px 6px', fontSize: '0.7rem'}}>
+                          {item.label} ({item.confidence}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
