@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BadgeCheck, Database, Film, Gauge, History, Loader2, UploadCloud } from 'lucide-react';
 import { API_BASE_URL, fetchHealth, fetchPredictions, uploadPrediction } from './api.js';
 
