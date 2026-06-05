@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import { dbState } from '../config/db.js';
 import { Prediction } from '../models/Prediction.js';
 import { parseSequenceLength, runPrediction } from '../services/predictionService.js';
@@ -21,7 +22,7 @@ export async function createPrediction(request, response, next) {
     const record = {
       originalName: request.file.originalname,
       storedName: request.file.filename,
-      fileUrl: `/uploads/${request.file.filename}`,
+      fileUrl: '',
       mimeType: request.file.mimetype,
       size: request.file.size,
       sequenceLength,
@@ -36,6 +37,10 @@ export async function createPrediction(request, response, next) {
     response.status(201).json({ prediction: saved, database: dbState });
   } catch (error) {
     next(error);
+  } finally {
+    if (request.file?.path) {
+      await fs.unlink(request.file.path).catch(() => {});
+    }
   }
 }
 

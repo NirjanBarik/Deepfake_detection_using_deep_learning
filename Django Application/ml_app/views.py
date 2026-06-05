@@ -1,25 +1,16 @@
 from django.shortcuts import render, redirect
 import torch
-import torchvision
 from torchvision import transforms, models
-from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 import os
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-import face_recognition
-from torch.autograd import Variable
 import time
-import sys
 from torch import nn
-import json
 import glob
-import copy
-from torchvision import models
 import shutil
 from PIL import Image as pImage
-import time
 from django.conf import settings
 from .forms import VideoUploadForm
 
@@ -30,7 +21,7 @@ about_template_name = "about.html"
 im_size = 112
 mean=[0.485, 0.456, 0.406]
 std=[0.229, 0.224, 0.225]
-sm = nn.Softmax()
+sm = nn.Softmax(dim=1)
 inv_normalize =  transforms.Normalize(mean=-1*np.divide(mean,std),std=np.divide([1,1,1],std))
 if torch.cuda.is_available():
     device = 'cuda'   # Fix: PyTorch uses 'cuda', not 'gpu'
@@ -43,11 +34,44 @@ train_transforms = transforms.Compose([
                                         transforms.ToTensor(),
                                         transforms.Normalize(mean,std)])
 
+def _load_face_detector():
+    cascade_path = os.path.join(cv2.data.haarcascades, 'haarcascade_frontalface_default.xml')
+    if os.path.exists(cascade_path):
+        return cv2.CascadeClassifier(cascade_path)
+    return None
+
+_FACE_CASCADE = _load_face_detector()
+
+def detect_largest_face_box(frame_rgb):
+    if _FACE_CASCADE is None or _FACE_CASCADE.empty():
+        return None
+
+    gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
+    faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+    if len(faces) == 0:
+        return None
+
+    x, y, w, h = max(faces, key=lambda face: face[2] * face[3])
+    return x, y, w, h
+
+def crop_largest_face(frame_rgb, padding=20):
+    box = detect_largest_face_box(frame_rgb)
+    if box is None:
+        return frame_rgb
+
+    x, y, w, h = box
+    h_img, w_img = frame_rgb.shape[:2]
+    x1 = max(0, x - padding)
+    y1 = max(0, y - padding)
+    x2 = min(w_img, x + w + padding)
+    y2 = min(h_img, y + h + padding)
+    return frame_rgb[y1:y2, x1:x2]
+
 class Model(nn.Module):
 
     def __init__(self, num_classes,latent_dim= 2048, lstm_layers=1 , hidden_dim = 2048, bidirectional = False):
         super(Model, self).__init__()
-        model = models.resnext50_32x4d(pretrained = True)
+        model = models.resnext50_32x4d(weights=None)
         self.model = nn.Sequential(*list(model.children())[:-2])
         self.lstm = nn.LSTM(latent_dim,hidden_dim, lstm_layers,  bidirectional)
         self.relu = nn.LeakyReLU()
@@ -77,28 +101,19 @@ class validation_dataset(Dataset):
     def __getitem__(self,idx):
         video_path = self.video_names[idx]
         frames = []
-        a = int(100/self.count)
-        first_frame = np.random.randint(0,a)
         for i,frame in enumerate(self.frame_extract(video_path)):
-            #if(i % a == first_frame):
-            faces = face_recognition.face_locations(frame)
-            try:
-              top,right,bottom,left = faces[0]
-              frame = frame[top:bottom,left:right,:]
-            except:
-              pass
-            frames.append(self.transform(frame))
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            face_frame = crop_largest_face(rgb_frame)
+            frames.append(self.transform(face_frame))
             if(len(frames) == self.count):
                 break
-        """
-        for i,frame in enumerate(self.frame_extract(video_path)):
-            if(i % a == first_frame):
-                frames.append(self.transform(frame))
-        """        
-        # if(len(frames)<self.count):
-        #   for i in range(self.count-len(frames)):
-        #         frames.append(self.transform(frame))
-        #print("no of frames", self.count)
+
+        if not frames:
+            raise ValueError("Could not extract any frames from the uploaded video.")
+
+        while len(frames) < self.count:
+            frames.append(frames[-1])
+
         frames = torch.stack(frames)
         frames = frames[:self.count]
         return frames.unsqueeze(0)
@@ -174,44 +189,35 @@ def plot_heat_map(i, model, img, path = './', video_file_name=''):
 
 # Model Selection
 def get_accurate_model(sequence_length):
-    model_name = []
     sequence_model = []
-    final_model = ""
     list_models = glob.glob(os.path.join(settings.PROJECT_DIR, "models", "*.pt"))
 
-    for model_path in list_models:
-        model_name.append(os.path.basename(model_path))
+    if not list_models:
+        raise FileNotFoundError(f"No .pt model files found in {os.path.join(settings.PROJECT_DIR, 'models')}")
 
-    for model_filename in model_name:
+    for model_path in list_models:
+        model_filename = os.path.basename(model_path)
         try:
             seq = model_filename.split("_")[3]
             if int(seq) == sequence_length:
-                sequence_model.append(model_filename)
-        except IndexError:
-            pass  # Handle cases where the filename format doesn't match expected
+                sequence_model.append(model_path)
+        except (IndexError, ValueError):
+            pass
 
-    if len(sequence_model) > 1:
-        accuracy = []
-        for filename in sequence_model:
-            acc = filename.split("_")[1]
-            accuracy.append(acc)  # Convert accuracy to float for proper comparison
-        max_index = accuracy.index(max(accuracy))
-        final_model = os.path.join(settings.PROJECT_DIR, "models", sequence_model[max_index])
-    elif len(sequence_model) == 1:
-        final_model = os.path.join(settings.PROJECT_DIR, "models", sequence_model[0])
-    else:
-        print("No model found for the specified sequence length.")  # Handle no models found case
+    candidates = sequence_model if sequence_model else list_models
 
-    return final_model
+    def accuracy_key(model_path):
+        try:
+            return float(os.path.basename(model_path).split("_")[1])
+        except (IndexError, ValueError):
+            return 0.0
+
+    return max(candidates, key=accuracy_key)
 
 ALLOWED_VIDEO_EXTENSIONS = set(['mp4','gif','webm','avi','3gp','wmv','flv','mkv'])
 
 def allowed_video_file(filename):
-    #print("filename" ,filename.rsplit('.',1)[1].lower())
-    if (filename.rsplit('.',1)[1].lower() in ALLOWED_VIDEO_EXTENSIONS):
-        return True
-    else: 
-        return False
+    return "." in filename and filename.rsplit('.',1)[1].lower() in ALLOWED_VIDEO_EXTENSIONS
 def index(request):
     if request.method == 'GET':
         video_upload_form = VideoUploadForm()
@@ -283,10 +289,8 @@ def predict_page(request):
             model = Model(2).cuda()
         else:
             model = Model(2).cpu()
-        # Fix: get_accurate_model() returns just the filename; build the path once.
-        model_filename = get_accurate_model(sequence_length)
-        path_to_model = os.path.join(settings.PROJECT_DIR, 'models', model_filename)
-        model.load_state_dict(torch.load(path_to_model, map_location=torch.device('cpu')))
+        path_to_model = get_accurate_model(sequence_length)
+        model.load_state_dict(load_model_state(path_to_model))
         model.eval()
         start_time = time.time()
         # Display preprocessing images
@@ -323,21 +327,19 @@ def predict_page(request):
             preprocessed_images.append(image_name)
 
             # Face detection and cropping
-            face_locations = face_recognition.face_locations(rgb_frame)
-            if len(face_locations) == 0:
+            face_box = detect_largest_face_box(rgb_frame)
+            if face_box is None:
                 continue
 
-            top, right, bottom, left = face_locations[0]
-            # Guard against negative indices when face is near the frame edge
-            t = max(0, top - padding)
-            b = min(frame.shape[0], bottom + padding)
-            l = max(0, left - padding)
-            r = min(frame.shape[1], right + padding)
-            frame_face = frame[t:b, l:r]
+            x, y, w, h = face_box
+            t = max(0, y - padding)
+            b = min(frame.shape[0], y + h + padding)
+            l = max(0, x - padding)
+            r = min(frame.shape[1], x + w + padding)
+            frame_face = rgb_frame[t:b, l:r]
 
-            # Convert cropped face image to RGB and save
-            rgb_face = cv2.cvtColor(frame_face, cv2.COLOR_BGR2RGB)
-            img_face_rgb = pImage.fromarray(rgb_face, 'RGB')
+            # Save cropped face image
+            img_face_rgb = pImage.fromarray(frame_face, 'RGB')
             image_name = f"{video_file_name_only}_cropped_faces_{i+1}.png"
             image_path = os.path.join(settings.PROJECT_DIR, 'uploaded_images', image_name)
             img_face_rgb.save(image_path)

@@ -15,14 +15,26 @@ export function parseSequenceLength(value) {
 
 export async function runPrediction({ filePath, originalName, sequenceLength, predictorCommand }) {
   if (predictorCommand) {
-    return runExternalPredictor({ filePath, sequenceLength, predictorCommand });
+    try {
+      return await runExternalPredictor({ filePath, sequenceLength, predictorCommand });
+    } catch (error) {
+      return runDemoPrediction({
+        originalName,
+        sequenceLength,
+        fallbackReason: getPredictorErrorMessage(error)
+      });
+    }
   }
 
   return runDemoPrediction({ originalName, sequenceLength });
 }
 
 async function runExternalPredictor({ filePath, sequenceLength, predictorCommand }) {
-  const [command, ...baseArgs] = predictorCommand.split(' ').filter(Boolean);
+  const [command, ...baseArgs] = splitCommand(predictorCommand);
+  if (!command) {
+    throw new Error('PYTHON_PREDICTOR is empty.');
+  }
+
   const { stdout } = await execFileAsync(command, [...baseArgs, filePath, String(sequenceLength)], {
     timeout: 1000 * 60 * 10
   });
@@ -42,7 +54,7 @@ async function runExternalPredictor({ filePath, sequenceLength, predictorCommand
   };
 }
 
-function runDemoPrediction({ originalName, sequenceLength }) {
+function runDemoPrediction({ originalName, sequenceLength, fallbackReason }) {
   const hash = crypto.createHash('sha256').update(`${originalName}:${sequenceLength}`).digest();
   const score = hash[0] / 255;
   const confidence = 64 + Math.round((hash[1] / 255) * 310) / 10;
@@ -51,10 +63,33 @@ function runDemoPrediction({ originalName, sequenceLength }) {
     label: score > 0.5 ? 'FAKE' : 'REAL',
     confidence: clampConfidence(confidence),
     demoMode: true,
-    notes: 'Demo prediction. Configure PYTHON_PREDICTOR to connect the trained PyTorch model.'
+    notes: fallbackReason
+      ? `Demo prediction. External predictor unavailable: ${fallbackReason}`
+      : 'Demo prediction. Configure PYTHON_PREDICTOR to connect the trained PyTorch model.'
   };
 }
 
 function clampConfidence(value) {
   return Math.max(1, Math.min(99.9, Math.round(value * 10) / 10));
+}
+
+function splitCommand(commandLine) {
+  const matches = commandLine.match(/"([^"]+)"|'([^']+)'|[^\s]+/g) || [];
+  return matches.map((part) => part.replace(/^["']|["']$/g, ''));
+}
+
+function getPredictorErrorMessage(error) {
+  const stdout = error.stdout?.trim();
+  if (stdout) {
+    try {
+      const parsed = JSON.parse(stdout);
+      if (parsed.error) {
+        return parsed.error;
+      }
+    } catch {
+      return stdout.slice(0, 180);
+    }
+  }
+
+  return (error.message || 'unknown error').slice(0, 180);
 }

@@ -16,7 +16,6 @@ import os
 import json
 import glob
 
-import numpy as np
 import cv2
 import torch
 from torch import nn
@@ -171,6 +170,19 @@ def find_model(models_dir, sequence_length):
     return max(pool, key=accuracy_key)
 
 
+def load_model_state(model_path):
+    """
+    Load a PyTorch state dict across torch versions.
+
+    Newer torch supports weights_only=True; older versions used by the Django app
+    do not, so this keeps the bridge compatible with both environments.
+    """
+    try:
+        return torch.load(model_path, map_location=torch.device(DEVICE), weights_only=True)
+    except TypeError:
+        return torch.load(model_path, map_location=torch.device(DEVICE))
+
+
 # ── Inference ─────────────────────────────────────────────────────────────────
 def run_inference(video_path, sequence_length):
     SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -179,9 +191,7 @@ def run_inference(video_path, sequence_length):
     model_path   = find_model(models_dir, sequence_length)
 
     model = Model(2)
-    model.load_state_dict(
-        torch.load(model_path, map_location=torch.device(DEVICE), weights_only=True)
-    )
+    model.load_state_dict(load_model_state(model_path))
     model.to(DEVICE)
     model.eval()
 
@@ -205,9 +215,8 @@ if __name__ == '__main__':
         sys.exit(1)
 
     video_path      = sys.argv[1]
-    sequence_length = int(sys.argv[2])
-
     try:
+        sequence_length = int(sys.argv[2])
         label, confidence = run_inference(video_path, sequence_length)
         print(json.dumps({'label': label, 'confidence': confidence}))
     except Exception as exc:
