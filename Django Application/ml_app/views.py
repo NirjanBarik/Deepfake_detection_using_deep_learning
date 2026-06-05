@@ -33,7 +33,7 @@ std=[0.229, 0.224, 0.225]
 sm = nn.Softmax()
 inv_normalize =  transforms.Normalize(mean=-1*np.divide(mean,std),std=np.divide([1,1,1],std))
 if torch.cuda.is_available():
-    device = 'gpu'
+    device = 'cuda'   # Fix: PyTorch uses 'cuda', not 'gpu'
 else:
     device = 'cpu'
 
@@ -279,12 +279,13 @@ def predict_page(request):
         video_dataset = validation_dataset(path_to_videos, sequence_length=sequence_length, transform=train_transforms)
 
         # Load model
-        if(device == "gpu"):
-            model = Model(2).cuda()  # Adjust the model instantiation according to your model structure
+        if(device == "cuda"):
+            model = Model(2).cuda()
         else:
-            model = Model(2).cpu()  # Adjust the model instantiation according to your model structure
-        model_name = os.path.join(settings.PROJECT_DIR, 'models', get_accurate_model(sequence_length))
-        path_to_model = os.path.join(settings.PROJECT_DIR, model_name)
+            model = Model(2).cpu()
+        # Fix: get_accurate_model() returns just the filename; build the path once.
+        model_filename = get_accurate_model(sequence_length)
+        path_to_model = os.path.join(settings.PROJECT_DIR, 'models', model_filename)
         model.load_state_dict(torch.load(path_to_model, map_location=torch.device('cpu')))
         model.eval()
         start_time = time.time()
@@ -327,7 +328,12 @@ def predict_page(request):
                 continue
 
             top, right, bottom, left = face_locations[0]
-            frame_face = frame[top - padding:bottom + padding, left - padding:right + padding]
+            # Guard against negative indices when face is near the frame edge
+            t = max(0, top - padding)
+            b = min(frame.shape[0], bottom + padding)
+            l = max(0, left - padding)
+            r = min(frame.shape[1], right + padding)
+            frame_face = frame[t:b, l:r]
 
             # Convert cropped face image to RGB and save
             rgb_face = cv2.cvtColor(frame_face, cv2.COLOR_BGR2RGB)
@@ -343,7 +349,7 @@ def predict_page(request):
 
         # No face detected
         if faces_found == 0:
-            return render(request, 'predict_template_name.html', {"no_faces": True})
+            return render(request, predict_template_name, {"no_faces": True})  # Fix: was a string literal
 
         # Perform prediction
         try:
